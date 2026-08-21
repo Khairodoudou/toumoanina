@@ -122,3 +122,76 @@ export async function tursoGetAllUsers(): Promise<User[]> {
     return [];
   }
 }
+
+// ── Update user fields (admin PATCH) ────────────────────────────────────────
+export async function tursoUpdateUser(
+  userId: string,
+  fields: { name?: string; phone?: string; isActive?: boolean; role?: string }
+): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    const sets: string[] = [];
+    const args: unknown[] = [];
+    if (fields.name !== undefined) { sets.push("name = ?"); args.push(fields.name); }
+    if (fields.phone !== undefined) { sets.push("phone = ?"); args.push(fields.phone); }
+    if (fields.isActive !== undefined) { sets.push("is_active = ?"); args.push(fields.isActive ? 1 : 0); }
+    if (fields.role !== undefined) { sets.push("role = ?"); args.push(fields.role); }
+    if (sets.length === 0) return true;
+    args.push(userId);
+    await client.execute({ sql: `UPDATE users SET ${sets.join(", ")} WHERE id = ?`, args });
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to update user:", err);
+    return false;
+  }
+}
+
+// ── Delete user and cascade (admin DELETE) ──────────────────────────────────
+export async function tursoDeleteUser(userId: string): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    // Get patient IDs for this user
+    const patientsRes = await client.execute({
+      sql: "SELECT id FROM patients WHERE family_id = ?",
+      args: [userId],
+    });
+    const patientIds = patientsRes.rows.map((r) => r.id as string);
+
+    if (patientIds.length > 0) {
+      const placeholders = patientIds.map(() => "?").join(",");
+      await client.batch([
+        { sql: `DELETE FROM locations WHERE patient_id IN (${placeholders})`, args: patientIds },
+        { sql: `DELETE FROM moods WHERE patient_id IN (${placeholders})`, args: patientIds },
+        { sql: `DELETE FROM activities WHERE patient_id IN (${placeholders})`, args: patientIds },
+      ], "write");
+    }
+
+    await client.batch([
+      { sql: "DELETE FROM patients WHERE family_id = ?", args: [userId] },
+      { sql: "DELETE FROM alerts WHERE family_id = ?", args: [userId] },
+      { sql: "DELETE FROM users WHERE id = ?", args: [userId] },
+    ], "write");
+
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to delete user:", err);
+    return false;
+  }
+}
+
+// ── Count patients for a user ───────────────────────────────────────────────
+export async function tursoCountPatients(userId: string): Promise<number> {
+  const client = getTursoClient();
+  if (!client) return 0;
+  try {
+    const res = await client.execute({
+      sql: "SELECT COUNT(*) as cnt FROM patients WHERE family_id = ?",
+      args: [userId],
+    });
+    return (res.rows[0].cnt as number) ?? 0;
+  } catch {
+    return 0;
+  }
+}
