@@ -4,6 +4,7 @@
  * Falls back gracefully if client is unavailable.
  */
 
+import type { InValue } from "@libsql/client";
 import { getTursoClient } from "./turso";
 import type { User } from "./db";
 
@@ -132,9 +133,9 @@ export async function tursoUpdateUser(
   if (!client) return false;
   try {
     const sets: string[] = [];
-    const args: unknown[] = [];
+    const args: InValue[] = [];
     if (fields.name !== undefined) { sets.push("name = ?"); args.push(fields.name); }
-    if (fields.phone !== undefined) { sets.push("phone = ?"); args.push(fields.phone); }
+    if (fields.phone !== undefined) { sets.push("phone = ?"); args.push(fields.phone ?? null); }
     if (fields.isActive !== undefined) { sets.push("is_active = ?"); args.push(fields.isActive ? 1 : 0); }
     if (fields.role !== undefined) { sets.push("role = ?"); args.push(fields.role); }
     if (sets.length === 0) return true;
@@ -161,10 +162,11 @@ export async function tursoDeleteUser(userId: string): Promise<boolean> {
 
     if (patientIds.length > 0) {
       const placeholders = patientIds.map(() => "?").join(",");
+      const pids: InValue[] = patientIds;
       await client.batch([
-        { sql: `DELETE FROM locations WHERE patient_id IN (${placeholders})`, args: patientIds },
-        { sql: `DELETE FROM moods WHERE patient_id IN (${placeholders})`, args: patientIds },
-        { sql: `DELETE FROM activities WHERE patient_id IN (${placeholders})`, args: patientIds },
+        { sql: `DELETE FROM locations WHERE patient_id IN (${placeholders})`, args: pids },
+        { sql: `DELETE FROM moods WHERE patient_id IN (${placeholders})`, args: pids },
+        { sql: `DELETE FROM activities WHERE patient_id IN (${placeholders})`, args: pids },
       ], "write");
     }
 
