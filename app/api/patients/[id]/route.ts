@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/server/db";
+import {
+  tursoFindPatientById,
+  tursoUpdatePatient,
+  tursoDeletePatient,
+} from "@/lib/server/turso-queries";
+import { getTursoClient } from "@/lib/server/turso";
 
 export async function GET(
   _req: Request,
@@ -7,7 +13,12 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const patient = db.patients.find((p) => p.id === id);
+    const hasTurso = !!getTursoClient();
+
+    let patient = hasTurso ? await tursoFindPatientById(id) : null;
+    if (!patient) {
+      patient = db.patients.find((p) => p.id === id) || null;
+    }
 
     if (!patient) {
       return NextResponse.json({ error: "Patient introuvable." }, { status: 404 });
@@ -38,22 +49,26 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    const index = db.patients.findIndex((p) => p.id === id);
+    const body = await req.json();
 
-    if (index === -1) {
-      return NextResponse.json({ error: "Patient introuvable." }, { status: 404 });
+    // Update in Turso
+    await tursoUpdatePatient(id, body);
+
+    // Also update in-memory
+    const index = db.patients.findIndex((p) => p.id === id);
+    if (index !== -1) {
+      db.patients[index] = {
+        ...db.patients[index],
+        ...body,
+        safeLatitude: body.safeLatitude !== undefined ? Number(body.safeLatitude) : db.patients[index].safeLatitude,
+        safeLongitude: body.safeLongitude !== undefined ? Number(body.safeLongitude) : db.patients[index].safeLongitude,
+        safeRadiusMeters: body.safeRadiusMeters !== undefined ? Number(body.safeRadiusMeters) : db.patients[index].safeRadiusMeters,
+      };
     }
 
-    const body = await req.json();
-    db.patients[index] = {
-      ...db.patients[index],
-      ...body,
-      safeLatitude: body.safeLatitude !== undefined ? Number(body.safeLatitude) : db.patients[index].safeLatitude,
-      safeLongitude: body.safeLongitude !== undefined ? Number(body.safeLongitude) : db.patients[index].safeLongitude,
-      safeRadiusMeters: body.safeRadiusMeters !== undefined ? Number(body.safeRadiusMeters) : db.patients[index].safeRadiusMeters,
-    };
+    const updated = (await tursoFindPatientById(id)) || (index !== -1 ? db.patients[index] : null);
 
-    return NextResponse.json({ success: true, patient: db.patients[index] });
+    return NextResponse.json({ success: true, patient: updated });
   } catch (error) {
     console.error("Patient PUT error:", error);
     return NextResponse.json({ error: "Erreur serveur lors de la mise à jour." }, { status: 500 });
@@ -66,13 +81,16 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const index = db.patients.findIndex((p) => p.id === id);
 
-    if (index === -1) {
-      return NextResponse.json({ error: "Patient introuvable." }, { status: 404 });
+    // Delete in Turso
+    await tursoDeletePatient(id);
+
+    // Also clean in-memory
+    const index = db.patients.findIndex((p) => p.id === id);
+    if (index !== -1) {
+      db.patients.splice(index, 1);
     }
 
-    db.patients.splice(index, 1);
     return NextResponse.json({ success: true, message: "Patient supprimé." });
   } catch (error) {
     console.error("Patient DELETE error:", error);

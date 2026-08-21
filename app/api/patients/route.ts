@@ -1,11 +1,26 @@
 import { NextResponse } from "next/server";
 import { db, Patient } from "@/lib/server/db";
 import { getSessionUser } from "@/lib/server/auth";
+import {
+  tursoGetPatientsByFamily,
+  tursoGetAllPatients,
+  tursoInsertPatient,
+  tursoSetActivePatient,
+} from "@/lib/server/turso-queries";
+import { getTursoClient } from "@/lib/server/turso";
 
 export async function GET() {
   try {
     const user = await getSessionUser();
+    const hasTurso = !!getTursoClient();
+
     if (!user) {
+      if (hasTurso) {
+        const demoPatients = await tursoGetPatientsByFamily("usr_family_demo");
+        if (demoPatients.length > 0) {
+          return NextResponse.json({ patients: demoPatients });
+        }
+      }
       // Return demo patient if unauthenticated for seamless exploration
       return NextResponse.json({
         patients: db.patients.filter((p) => p.familyId === "usr_family_demo"),
@@ -13,7 +28,16 @@ export async function GET() {
     }
 
     if (user.role === "admin") {
+      if (hasTurso) {
+        const allPatients = await tursoGetAllPatients();
+        return NextResponse.json({ patients: allPatients });
+      }
       return NextResponse.json({ patients: db.patients });
+    }
+
+    if (hasTurso) {
+      const familyPatients = await tursoGetPatientsByFamily(user.id);
+      return NextResponse.json({ patients: familyPatients });
     }
 
     const familyPatients = db.patients.filter((p) => p.familyId === user.id);
@@ -68,11 +92,16 @@ export async function POST(req: Request) {
       createdAt: new Date().toISOString(),
     };
 
+    // Save to Turso
+    await tursoInsertPatient(newPatient);
+
+    // Also update in-memory
     db.patients.unshift(newPatient);
 
     // If user has no active patient, set this one
     if (user && !user.activePatientId) {
       user.activePatientId = newPatient.id;
+      await tursoSetActivePatient(user.id, newPatient.id);
     }
 
     return NextResponse.json({ success: true, patient: newPatient }, { status: 201 });

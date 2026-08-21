@@ -6,7 +6,7 @@
 
 import type { InValue } from "@libsql/client";
 import { getTursoClient } from "./turso";
-import type { User } from "./db";
+import type { User, Patient } from "./db";
 
 function rowToUser(row: Record<string, unknown>): User {
   return {
@@ -195,5 +195,169 @@ export async function tursoCountPatients(userId: string): Promise<number> {
     return (res.rows[0].cnt as number) ?? 0;
   } catch {
     return 0;
+  }
+}
+// ════════════════════════════════════════════════════════════
+// PATIENTS
+// ════════════════════════════════════════════════════════════
+
+function rowToPatient(row: Record<string, unknown>): Patient {
+  return {
+    id: row.id as string,
+    familyId: row.family_id as string,
+    name: row.name as string,
+    birthDate: row.birth_date as string,
+    bloodType: (row.blood_type as string) ?? undefined,
+    emergencyPhone: row.emergency_phone as string,
+    photoUrl: (row.photo_url as string) ?? undefined,
+    dailyHabits: (row.daily_habits as string) ?? undefined,
+    dietPreferences: (row.diet_preferences as string) ?? undefined,
+    medicalNotes: (row.medical_notes as string) ?? undefined,
+    safeLatitude: row.safe_latitude as number,
+    safeLongitude: row.safe_longitude as number,
+    safeRadiusMeters: row.safe_radius_meters as number,
+    createdAt: row.created_at as string,
+  };
+}
+
+// ── Get all patients for a family ───────────────────────────────────────────
+export async function tursoGetPatientsByFamily(familyId: string): Promise<Patient[]> {
+  const client = getTursoClient();
+  if (!client) return [];
+  try {
+    const res = await client.execute({
+      sql: "SELECT * FROM patients WHERE family_id = ? ORDER BY created_at DESC",
+      args: [familyId],
+    });
+    return res.rows.map((r) => rowToPatient(r as Record<string, unknown>));
+  } catch {
+    return [];
+  }
+}
+
+// ── Get all patients (admin) ─────────────────────────────────────────────────
+export async function tursoGetAllPatients(): Promise<Patient[]> {
+  const client = getTursoClient();
+  if (!client) return [];
+  try {
+    const res = await client.execute("SELECT * FROM patients ORDER BY created_at DESC");
+    return res.rows.map((r) => rowToPatient(r as Record<string, unknown>));
+  } catch {
+    return [];
+  }
+}
+
+// ── Find patient by id ───────────────────────────────────────────────────────
+export async function tursoFindPatientById(id: string): Promise<Patient | null> {
+  const client = getTursoClient();
+  if (!client) return null;
+  try {
+    const res = await client.execute({
+      sql: "SELECT * FROM patients WHERE id = ? LIMIT 1",
+      args: [id],
+    });
+    if (res.rows.length === 0) return null;
+    return rowToPatient(res.rows[0] as Record<string, unknown>);
+  } catch {
+    return null;
+  }
+}
+
+// ── Insert new patient ───────────────────────────────────────────────────────
+export async function tursoInsertPatient(p: Patient): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    await client.execute({
+      sql: `INSERT INTO patients
+        (id, family_id, name, birth_date, blood_type, emergency_phone, photo_url,
+         daily_habits, diet_preferences, medical_notes,
+         safe_latitude, safe_longitude, safe_radius_meters, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      args: [
+        p.id, p.familyId, p.name, p.birthDate,
+        p.bloodType ?? null, p.emergencyPhone, p.photoUrl ?? null,
+        p.dailyHabits ?? null, p.dietPreferences ?? null, p.medicalNotes ?? null,
+        p.safeLatitude, p.safeLongitude, p.safeRadiusMeters, p.createdAt,
+      ],
+    });
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to insert patient:", err);
+    return false;
+  }
+}
+
+// ── Update patient ───────────────────────────────────────────────────────────
+export async function tursoUpdatePatient(
+  id: string,
+  body: Partial<Patient>
+): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    const fields: string[] = [];
+    const args: InValue[] = [];
+    const map: Record<string, InValue | null> = {
+      name: body.name ?? null,
+      birth_date: body.birthDate ?? null,
+      blood_type: body.bloodType ?? null,
+      emergency_phone: body.emergencyPhone ?? null,
+      photo_url: body.photoUrl ?? null,
+      daily_habits: body.dailyHabits ?? null,
+      diet_preferences: body.dietPreferences ?? null,
+      medical_notes: body.medicalNotes ?? null,
+      safe_latitude: body.safeLatitude ?? null,
+      safe_longitude: body.safeLongitude ?? null,
+      safe_radius_meters: body.safeRadiusMeters ?? null,
+    };
+    for (const [col, val] of Object.entries(map)) {
+      if (val !== null && val !== undefined) {
+        fields.push(`${col} = ?`);
+        args.push(val);
+      }
+    }
+    if (fields.length === 0) return true;
+    args.push(id);
+    await client.execute({
+      sql: `UPDATE patients SET ${fields.join(", ")} WHERE id = ?`,
+      args,
+    });
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to update patient:", err);
+    return false;
+  }
+}
+
+// ── Delete patient (cascade locations/moods/activities) ──────────────────────
+export async function tursoDeletePatient(id: string): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    await client.batch([
+      { sql: "DELETE FROM locations WHERE patient_id = ?", args: [id] },
+      { sql: "DELETE FROM moods WHERE patient_id = ?", args: [id] },
+      { sql: "DELETE FROM activities WHERE patient_id = ?", args: [id] },
+      { sql: "DELETE FROM patients WHERE id = ?", args: [id] },
+    ], "write");
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to delete patient:", err);
+    return false;
+  }
+}
+
+// ── Set active patient on user ───────────────────────────────────────────────
+export async function tursoSetActivePatient(userId: string, patientId: string): Promise<void> {
+  const client = getTursoClient();
+  if (!client) return;
+  try {
+    await client.execute({
+      sql: "UPDATE users SET active_patient_id = ? WHERE id = ?",
+      args: [patientId, userId],
+    });
+  } catch (err) {
+    console.error("[Turso] Failed to set active patient:", err);
   }
 }
