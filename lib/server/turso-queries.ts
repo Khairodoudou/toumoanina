@@ -1,12 +1,25 @@
 /**
  * lib/server/turso-queries.ts
- * Helper functions to read/write directly to Turso LibSQL.
- * Falls back gracefully if client is unavailable.
+ * Comprehensive Turso LibSQL persistence layer for ToumAnina
  */
 
 import type { InValue } from "@libsql/client";
 import { getTursoClient } from "./turso";
-import type { User, Patient } from "./db";
+import type {
+  User,
+  Patient,
+  LocationRecord,
+  MoodRecord,
+  ActivityRecord,
+  SafetyAlert,
+  AuditLog,
+  ActivityTemplate,
+  ContentItem,
+} from "./db";
+
+// ════════════════════════════════════════════════════════════
+// USERS
+// ════════════════════════════════════════════════════════════
 
 function rowToUser(row: Record<string, unknown>): User {
   return {
@@ -23,7 +36,6 @@ function rowToUser(row: Record<string, unknown>): User {
   };
 }
 
-// ── Find user by email ──────────────────────────────────────────────────────
 export async function tursoFindUserByEmail(email: string): Promise<User | null> {
   const client = getTursoClient();
   if (!client) return null;
@@ -39,7 +51,6 @@ export async function tursoFindUserByEmail(email: string): Promise<User | null> 
   }
 }
 
-// ── Find user by id ─────────────────────────────────────────────────────────
 export async function tursoFindUserById(id: string): Promise<User | null> {
   const client = getTursoClient();
   if (!client) return null;
@@ -55,7 +66,6 @@ export async function tursoFindUserById(id: string): Promise<User | null> {
   }
 }
 
-// ── Insert new user ─────────────────────────────────────────────────────────
 export async function tursoInsertUser(user: User): Promise<boolean> {
   const client = getTursoClient();
   if (!client) return false;
@@ -83,36 +93,6 @@ export async function tursoInsertUser(user: User): Promise<boolean> {
   }
 }
 
-// ── Audit log ───────────────────────────────────────────────────────────────
-export async function tursoInsertLog(entry: {
-  id: string;
-  userId?: string;
-  userEmail?: string;
-  action: string;
-  details: string;
-  createdAt: string;
-}): Promise<void> {
-  const client = getTursoClient();
-  if (!client) return;
-  try {
-    await client.execute({
-      sql: `INSERT INTO audit_logs (id, user_id, user_email, action, details, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)`,
-      args: [
-        entry.id,
-        entry.userId ?? null,
-        entry.userEmail ?? null,
-        entry.action,
-        entry.details,
-        entry.createdAt,
-      ],
-    });
-  } catch (err) {
-    console.error("[Turso] Failed to insert audit log:", err);
-  }
-}
-
-// ── Get all users (admin) ───────────────────────────────────────────────────
 export async function tursoGetAllUsers(): Promise<User[]> {
   const client = getTursoClient();
   if (!client) return [];
@@ -124,7 +104,6 @@ export async function tursoGetAllUsers(): Promise<User[]> {
   }
 }
 
-// ── Update user fields (admin PATCH) ────────────────────────────────────────
 export async function tursoUpdateUser(
   userId: string,
   fields: { name?: string; phone?: string; isActive?: boolean; role?: string }
@@ -148,12 +127,10 @@ export async function tursoUpdateUser(
   }
 }
 
-// ── Delete user and cascade (admin DELETE) ──────────────────────────────────
 export async function tursoDeleteUser(userId: string): Promise<boolean> {
   const client = getTursoClient();
   if (!client) return false;
   try {
-    // Get patient IDs for this user
     const patientsRes = await client.execute({
       sql: "SELECT id FROM patients WHERE family_id = ?",
       args: [userId],
@@ -183,7 +160,6 @@ export async function tursoDeleteUser(userId: string): Promise<boolean> {
   }
 }
 
-// ── Count patients for a user ───────────────────────────────────────────────
 export async function tursoCountPatients(userId: string): Promise<number> {
   const client = getTursoClient();
   if (!client) return 0;
@@ -197,6 +173,7 @@ export async function tursoCountPatients(userId: string): Promise<number> {
     return 0;
   }
 }
+
 // ════════════════════════════════════════════════════════════
 // PATIENTS
 // ════════════════════════════════════════════════════════════
@@ -220,7 +197,6 @@ function rowToPatient(row: Record<string, unknown>): Patient {
   };
 }
 
-// ── Get all patients for a family ───────────────────────────────────────────
 export async function tursoGetPatientsByFamily(familyId: string): Promise<Patient[]> {
   const client = getTursoClient();
   if (!client) return [];
@@ -235,7 +211,6 @@ export async function tursoGetPatientsByFamily(familyId: string): Promise<Patien
   }
 }
 
-// ── Get all patients (admin) ─────────────────────────────────────────────────
 export async function tursoGetAllPatients(): Promise<Patient[]> {
   const client = getTursoClient();
   if (!client) return [];
@@ -247,7 +222,6 @@ export async function tursoGetAllPatients(): Promise<Patient[]> {
   }
 }
 
-// ── Find patient by id ───────────────────────────────────────────────────────
 export async function tursoFindPatientById(id: string): Promise<Patient | null> {
   const client = getTursoClient();
   if (!client) return null;
@@ -263,7 +237,6 @@ export async function tursoFindPatientById(id: string): Promise<Patient | null> 
   }
 }
 
-// ── Insert new patient ───────────────────────────────────────────────────────
 export async function tursoInsertPatient(p: Patient): Promise<boolean> {
   const client = getTursoClient();
   if (!client) return false;
@@ -288,7 +261,6 @@ export async function tursoInsertPatient(p: Patient): Promise<boolean> {
   }
 }
 
-// ── Update patient ───────────────────────────────────────────────────────────
 export async function tursoUpdatePatient(
   id: string,
   body: Partial<Patient>
@@ -330,7 +302,6 @@ export async function tursoUpdatePatient(
   }
 }
 
-// ── Delete patient (cascade locations/moods/activities) ──────────────────────
 export async function tursoDeletePatient(id: string): Promise<boolean> {
   const client = getTursoClient();
   if (!client) return false;
@@ -348,7 +319,6 @@ export async function tursoDeletePatient(id: string): Promise<boolean> {
   }
 }
 
-// ── Set active patient on user ───────────────────────────────────────────────
 export async function tursoSetActivePatient(userId: string, patientId: string): Promise<void> {
   const client = getTursoClient();
   if (!client) return;
@@ -359,5 +329,536 @@ export async function tursoSetActivePatient(userId: string, patientId: string): 
     });
   } catch (err) {
     console.error("[Turso] Failed to set active patient:", err);
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// LOCATIONS
+// ════════════════════════════════════════════════════════════
+
+function rowToLocation(row: Record<string, unknown>): LocationRecord {
+  return {
+    id: row.id as string,
+    patientId: row.patient_id as string,
+    latitude: row.latitude as number,
+    longitude: row.longitude as number,
+    accuracy: row.accuracy as number,
+    isInsideSafeZone: row.is_inside_safe_zone === 1,
+    distanceFromHomeMeters: row.distance_from_home_meters as number,
+    recordedAt: row.recorded_at as string,
+    source: row.source as "patient_device" | "simulation" | "manual",
+  };
+}
+
+export async function tursoGetLocations(patientId?: string, limit = 50): Promise<LocationRecord[]> {
+  const client = getTursoClient();
+  if (!client) return [];
+  try {
+    const res = patientId
+      ? await client.execute({
+          sql: "SELECT * FROM locations WHERE patient_id = ? ORDER BY recorded_at DESC LIMIT ?",
+          args: [patientId, limit],
+        })
+      : await client.execute({
+          sql: "SELECT * FROM locations ORDER BY recorded_at DESC LIMIT ?",
+          args: [limit],
+        });
+    return res.rows.map((r) => rowToLocation(r as Record<string, unknown>));
+  } catch {
+    return [];
+  }
+}
+
+export async function tursoInsertLocation(loc: LocationRecord): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    await client.execute({
+      sql: `INSERT INTO locations (id, patient_id, latitude, longitude, accuracy, is_inside_safe_zone, distance_from_home_meters, recorded_at, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        loc.id,
+        loc.patientId,
+        loc.latitude,
+        loc.longitude,
+        loc.accuracy,
+        loc.isInsideSafeZone ? 1 : 0,
+        loc.distanceFromHomeMeters,
+        loc.recordedAt,
+        loc.source,
+      ],
+    });
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to insert location:", err);
+    return false;
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// MOODS
+// ════════════════════════════════════════════════════════════
+
+function rowToMood(row: Record<string, unknown>): MoodRecord {
+  return {
+    id: row.id as string,
+    patientId: row.patient_id as string,
+    mood: row.mood as "very_good" | "good" | "neutral" | "difficult",
+    notes: (row.notes as string) ?? undefined,
+    recordedBy: row.recorded_by as "patient" | "caregiver",
+    recordedAt: row.recorded_at as string,
+  };
+}
+
+export async function tursoGetMoods(patientId?: string, limit = 50): Promise<MoodRecord[]> {
+  const client = getTursoClient();
+  if (!client) return [];
+  try {
+    const res = patientId
+      ? await client.execute({
+          sql: "SELECT * FROM moods WHERE patient_id = ? ORDER BY recorded_at DESC LIMIT ?",
+          args: [patientId, limit],
+        })
+      : await client.execute({
+          sql: "SELECT * FROM moods ORDER BY recorded_at DESC LIMIT ?",
+          args: [limit],
+        });
+    return res.rows.map((r) => rowToMood(r as Record<string, unknown>));
+  } catch {
+    return [];
+  }
+}
+
+export async function tursoInsertMood(m: MoodRecord): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    await client.execute({
+      sql: `INSERT INTO moods (id, patient_id, mood, notes, recorded_by, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?)`,
+      args: [
+        m.id,
+        m.patientId,
+        m.mood,
+        m.notes ?? null,
+        m.recordedBy,
+        m.recordedAt,
+      ],
+    });
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to insert mood:", err);
+    return false;
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// ACTIVITIES
+// ════════════════════════════════════════════════════════════
+
+function rowToActivity(row: Record<string, unknown>): ActivityRecord {
+  return {
+    id: row.id as string,
+    patientId: row.patient_id as string,
+    activityType: row.activity_type as ActivityRecord["activityType"],
+    score: row.score as number,
+    turns: row.turns as number,
+    durationSeconds: row.duration_seconds as number,
+    completedAt: row.completed_at as string,
+  };
+}
+
+export async function tursoGetActivities(patientId?: string, limit = 50): Promise<ActivityRecord[]> {
+  const client = getTursoClient();
+  if (!client) return [];
+  try {
+    const res = patientId
+      ? await client.execute({
+          sql: "SELECT * FROM activities WHERE patient_id = ? ORDER BY completed_at DESC LIMIT ?",
+          args: [patientId, limit],
+        })
+      : await client.execute({
+          sql: "SELECT * FROM activities ORDER BY completed_at DESC LIMIT ?",
+          args: [limit],
+        });
+    return res.rows.map((r) => rowToActivity(r as Record<string, unknown>));
+  } catch {
+    return [];
+  }
+}
+
+export async function tursoInsertActivity(act: ActivityRecord): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    await client.execute({
+      sql: `INSERT INTO activities (id, patient_id, activity_type, score, turns, duration_seconds, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        act.id,
+        act.patientId,
+        act.activityType,
+        act.score,
+        act.turns,
+        act.durationSeconds,
+        act.completedAt,
+      ],
+    });
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to insert activity:", err);
+    return false;
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// ALERTS
+// ════════════════════════════════════════════════════════════
+
+function rowToAlert(row: Record<string, unknown>): SafetyAlert {
+  return {
+    id: row.id as string,
+    familyId: row.family_id as string,
+    patientId: row.patient_id as string,
+    patientName: row.patient_name as string,
+    type: row.type as SafetyAlert["type"],
+    title: row.title as string,
+    description: row.description as string,
+    latitude: (row.latitude as number) ?? undefined,
+    longitude: (row.longitude as number) ?? undefined,
+    severity: row.severity as SafetyAlert["severity"],
+    isResolved: row.is_resolved === 1,
+    resolvedAt: (row.resolved_at as string) ?? undefined,
+    createdAt: row.created_at as string,
+  };
+}
+
+export async function tursoGetAlerts(familyId?: string, limit = 50): Promise<SafetyAlert[]> {
+  const client = getTursoClient();
+  if (!client) return [];
+  try {
+    const res = familyId
+      ? await client.execute({
+          sql: "SELECT * FROM alerts WHERE family_id = ? ORDER BY created_at DESC LIMIT ?",
+          args: [familyId, limit],
+        })
+      : await client.execute({
+          sql: "SELECT * FROM alerts ORDER BY created_at DESC LIMIT ?",
+          args: [limit],
+        });
+    return res.rows.map((r) => rowToAlert(r as Record<string, unknown>));
+  } catch {
+    return [];
+  }
+}
+
+export async function tursoInsertAlert(alt: SafetyAlert): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    await client.execute({
+      sql: `INSERT INTO alerts (id, family_id, patient_id, patient_name, type, title, description, latitude, longitude, severity, is_resolved, resolved_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        alt.id,
+        alt.familyId,
+        alt.patientId,
+        alt.patientName,
+        alt.type,
+        alt.title,
+        alt.description,
+        alt.latitude ?? null,
+        alt.longitude ?? null,
+        alt.severity,
+        alt.isResolved ? 1 : 0,
+        alt.resolvedAt ?? null,
+        alt.createdAt,
+      ],
+    });
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to insert alert:", err);
+    return false;
+  }
+}
+
+export async function tursoResolveAlert(id: string): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    await client.execute({
+      sql: "UPDATE alerts SET is_resolved = 1, resolved_at = ? WHERE id = ?",
+      args: [new Date().toISOString(), id],
+    });
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to resolve alert:", err);
+    return false;
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// ACTIVITY TEMPLATES
+// ════════════════════════════════════════════════════════════
+
+function rowToActivityTemplate(row: Record<string, unknown>): ActivityTemplate {
+  return {
+    id: row.id as string,
+    titleFr: row.title_fr as string,
+    titleAr: row.title_ar as string,
+    descriptionFr: row.description_fr as string,
+    descriptionAr: row.description_ar as string,
+    type: row.type as ActivityTemplate["type"],
+    difficulty: row.difficulty as ActivityTemplate["difficulty"],
+    durationMinutes: row.duration_minutes as number,
+    isActive: row.is_active === 1,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
+export async function tursoGetActivityTemplates(): Promise<ActivityTemplate[]> {
+  const client = getTursoClient();
+  if (!client) return [];
+  try {
+    const res = await client.execute("SELECT * FROM activity_templates ORDER BY created_at ASC");
+    return res.rows.map((r) => rowToActivityTemplate(r as Record<string, unknown>));
+  } catch {
+    return [];
+  }
+}
+
+export async function tursoInsertActivityTemplate(tpl: ActivityTemplate): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    await client.execute({
+      sql: `INSERT INTO activity_templates (id, title_fr, title_ar, description_fr, description_ar, type, difficulty, duration_minutes, is_active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        tpl.id,
+        tpl.titleFr,
+        tpl.titleAr,
+        tpl.descriptionFr,
+        tpl.descriptionAr,
+        tpl.type,
+        tpl.difficulty,
+        tpl.durationMinutes,
+        tpl.isActive ? 1 : 0,
+        tpl.createdAt,
+        tpl.updatedAt,
+      ],
+    });
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to insert activity template:", err);
+    return false;
+  }
+}
+
+export async function tursoUpdateActivityTemplate(
+  id: string,
+  tpl: Partial<ActivityTemplate>
+): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    const fields: string[] = [];
+    const args: InValue[] = [];
+    if (tpl.titleFr !== undefined) { fields.push("title_fr = ?"); args.push(tpl.titleFr); }
+    if (tpl.titleAr !== undefined) { fields.push("title_ar = ?"); args.push(tpl.titleAr); }
+    if (tpl.descriptionFr !== undefined) { fields.push("description_fr = ?"); args.push(tpl.descriptionFr); }
+    if (tpl.descriptionAr !== undefined) { fields.push("description_ar = ?"); args.push(tpl.descriptionAr); }
+    if (tpl.type !== undefined) { fields.push("type = ?"); args.push(tpl.type); }
+    if (tpl.difficulty !== undefined) { fields.push("difficulty = ?"); args.push(tpl.difficulty); }
+    if (tpl.durationMinutes !== undefined) { fields.push("duration_minutes = ?"); args.push(tpl.durationMinutes); }
+    if (tpl.isActive !== undefined) { fields.push("is_active = ?"); args.push(tpl.isActive ? 1 : 0); }
+    fields.push("updated_at = ?");
+    args.push(new Date().toISOString());
+
+    args.push(id);
+    await client.execute({
+      sql: `UPDATE activity_templates SET ${fields.join(", ")} WHERE id = ?`,
+      args,
+    });
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to update activity template:", err);
+    return false;
+  }
+}
+
+export async function tursoDeleteActivityTemplate(id: string): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    await client.execute({
+      sql: "DELETE FROM activity_templates WHERE id = ?",
+      args: [id],
+    });
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to delete activity template:", err);
+    return false;
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// CONTENT ITEMS
+// ════════════════════════════════════════════════════════════
+
+function rowToContentItem(row: Record<string, unknown>): ContentItem {
+  return {
+    id: row.id as string,
+    titleFr: row.title_fr as string,
+    titleAr: row.title_ar as string,
+    contentFr: row.content_fr as string,
+    contentAr: row.content_ar as string,
+    category: row.category as ContentItem["category"],
+    isPublished: row.is_published === 1,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
+export async function tursoGetContentItems(publishedOnly = false): Promise<ContentItem[]> {
+  const client = getTursoClient();
+  if (!client) return [];
+  try {
+    const res = publishedOnly
+      ? await client.execute("SELECT * FROM content_items WHERE is_published = 1 ORDER BY created_at DESC")
+      : await client.execute("SELECT * FROM content_items ORDER BY created_at DESC");
+    return res.rows.map((r) => rowToContentItem(r as Record<string, unknown>));
+  } catch {
+    return [];
+  }
+}
+
+export async function tursoInsertContentItem(item: ContentItem): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    await client.execute({
+      sql: `INSERT INTO content_items (id, title_fr, title_ar, content_fr, content_ar, category, is_published, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        item.id,
+        item.titleFr,
+        item.titleAr,
+        item.contentFr,
+        item.contentAr,
+        item.category,
+        item.isPublished ? 1 : 0,
+        item.createdAt,
+        item.updatedAt,
+      ],
+    });
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to insert content item:", err);
+    return false;
+  }
+}
+
+export async function tursoUpdateContentItem(
+  id: string,
+  item: Partial<ContentItem>
+): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    const fields: string[] = [];
+    const args: InValue[] = [];
+    if (item.titleFr !== undefined) { fields.push("title_fr = ?"); args.push(item.titleFr); }
+    if (item.titleAr !== undefined) { fields.push("title_ar = ?"); args.push(item.titleAr); }
+    if (item.contentFr !== undefined) { fields.push("content_fr = ?"); args.push(item.contentFr); }
+    if (item.contentAr !== undefined) { fields.push("content_ar = ?"); args.push(item.contentAr); }
+    if (item.category !== undefined) { fields.push("category = ?"); args.push(item.category); }
+    if (item.isPublished !== undefined) { fields.push("is_published = ?"); args.push(item.isPublished ? 1 : 0); }
+    fields.push("updated_at = ?");
+    args.push(new Date().toISOString());
+
+    args.push(id);
+    await client.execute({
+      sql: `UPDATE content_items SET ${fields.join(", ")} WHERE id = ?`,
+      args,
+    });
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to update content item:", err);
+    return false;
+  }
+}
+
+export async function tursoDeleteContentItem(id: string): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    await client.execute({
+      sql: "DELETE FROM content_items WHERE id = ?",
+      args: [id],
+    });
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to delete content item:", err);
+    return false;
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// AUDIT LOGS
+// ════════════════════════════════════════════════════════════
+
+function rowToAuditLog(row: Record<string, unknown>): AuditLog {
+  return {
+    id: row.id as string,
+    userId: (row.user_id as string) ?? undefined,
+    userEmail: (row.user_email as string) ?? undefined,
+    action: row.action as string,
+    details: row.details as string,
+    ip: (row.ip as string) ?? undefined,
+    createdAt: row.created_at as string,
+  };
+}
+
+export async function tursoGetAuditLogs(limit = 100): Promise<AuditLog[]> {
+  const client = getTursoClient();
+  if (!client) return [];
+  try {
+    const res = await client.execute({
+      sql: "SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?",
+      args: [limit],
+    });
+    return res.rows.map((r) => rowToAuditLog(r as Record<string, unknown>));
+  } catch {
+    return [];
+  }
+}
+
+export async function tursoInsertLog(entry: {
+  id: string;
+  userId?: string;
+  userEmail?: string;
+  action: string;
+  details: string;
+  createdAt: string;
+}): Promise<void> {
+  const client = getTursoClient();
+  if (!client) return;
+  try {
+    await client.execute({
+      sql: `INSERT INTO audit_logs (id, user_id, user_email, action, details, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)`,
+      args: [
+        entry.id,
+        entry.userId ?? null,
+        entry.userEmail ?? null,
+        entry.action,
+        entry.details,
+        entry.createdAt,
+      ],
+    });
+  } catch (err) {
+    console.error("[Turso] Failed to insert audit log:", err);
   }
 }

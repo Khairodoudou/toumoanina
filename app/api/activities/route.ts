@@ -1,13 +1,25 @@
 import { NextResponse } from "next/server";
 import { db, ActivityRecord } from "@/lib/server/db";
+import { tursoGetActivities, tursoInsertActivity } from "@/lib/server/turso-queries";
+import { getTursoClient } from "@/lib/server/turso";
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const patientId = searchParams.get("patientId") || db.patients[0]?.id;
+    const hasTurso = !!getTursoClient();
 
     if (!patientId) {
+      if (hasTurso) {
+        const activities = await tursoGetActivities();
+        return NextResponse.json({ activities });
+      }
       return NextResponse.json({ activities: [] });
+    }
+
+    if (hasTurso) {
+      const activities = await tursoGetActivities(patientId);
+      return NextResponse.json({ activities });
     }
 
     const activities = db.activities
@@ -24,6 +36,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+    const hasTurso = !!getTursoClient();
+
     const {
       patientId,
       activityType = "memory_pairs",
@@ -32,7 +46,7 @@ export async function POST(req: Request) {
       durationSeconds = 60,
     } = body;
 
-    const targetPatientId = patientId || db.patients[0]?.id;
+    const targetPatientId = patientId || db.patients[0]?.id || "pat_demo";
 
     const newActivity: ActivityRecord = {
       id: `act_${Date.now()}`,
@@ -44,6 +58,9 @@ export async function POST(req: Request) {
       completedAt: new Date().toISOString(),
     };
 
+    if (hasTurso) {
+      await tursoInsertActivity(newActivity);
+    }
     db.activities.unshift(newActivity);
 
     return NextResponse.json({ success: true, activity: newActivity }, { status: 201 });

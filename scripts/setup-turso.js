@@ -1,7 +1,7 @@
 /**
  * Turso Database Setup & Seeding Script
  * Usage:
- *   TURSO_DATABASE_URL="libsql://..." TURSO_AUTH_TOKEN="..." node scripts/setup-turso.js
+ *   node scripts/setup-turso.js
  */
 
 const { createClient } = require("@libsql/client/web");
@@ -34,9 +34,6 @@ const authToken = process.env.TURSO_AUTH_TOKEN;
 
 if (!url || !authToken) {
   console.error("❌ Erreur : TURSO_DATABASE_URL et TURSO_AUTH_TOKEN doivent être définis.");
-  console.log("👉 Exemple :");
-  console.log("   TURSO_DATABASE_URL=\"libsql://toumoanina-db-kheireddine23.aws-eu-west-1.turso.io\"");
-  console.log("   TURSO_AUTH_TOKEN=\"votre_token_ici\"");
   process.exit(1);
 }
 
@@ -153,10 +150,10 @@ async function setup() {
     );`,
   ], "write");
 
-  console.log("🌱 2. Insertion des données initiales (Comptes démo & Modèles)...");
+  console.log("🌱 2. Insertion des données initiales...");
 
-  // Hash helper
   const hash = (pwd) => Buffer.from(`toumoanina_salt_${pwd}`).toString("base64");
+  const now = new Date().toISOString();
 
   // Demo users
   await client.execute({
@@ -172,7 +169,7 @@ async function setup() {
       "1234",
       "pat_mohammed_1",
       1,
-      new Date().toISOString(),
+      now,
     ],
   });
 
@@ -187,7 +184,7 @@ async function setup() {
       "admin",
       hash("123456789"),
       1,
-      new Date().toISOString(),
+      now,
     ],
   });
 
@@ -209,9 +206,120 @@ async function setup() {
       36.7538,
       3.0588,
       600,
-      new Date().toISOString(),
+      now,
     ],
   });
+
+  // Activity Templates
+  const templates = [
+    {
+      id: "tpl_1",
+      titleFr: "Jeu des paires de mémoire",
+      titleAr: "لعبة أزواج الذاكرة",
+      descriptionFr: "Retrouvez les paires de cartes pour stimuler la mémoire visuelle et l'attention.",
+      descriptionAr: "العثور على أزواج البطاقات المتطابقة لتحفيز الذاكرة البصرية والانتباه.",
+      type: "memory_pairs",
+      difficulty: "easy",
+      durationMinutes: 5,
+    },
+    {
+      id: "tpl_2",
+      titleFr: "Reconnaissance de photos et souvenirs",
+      titleAr: "التعرف على الصور والذكريات",
+      descriptionFr: "Identifiez des objets, animaux et éléments familiers du quotidien.",
+      descriptionAr: "التعرف على الأشياء والحيوانات والمشاهد اليومية لترسيخ الذاكرة.",
+      type: "photo_memory",
+      difficulty: "easy",
+      durationMinutes: 5,
+    },
+    {
+      id: "tpl_3",
+      titleFr: "Suite de chiffres",
+      titleAr: "تسلسل الأرقام",
+      descriptionFr: "Mémorisez puis reproduisez une suite de chiffres simples.",
+      descriptionAr: "احفظ تسلسل الأرقام وأعِد إدخالها بالترتيب الصحيح لتدريب التركيز.",
+      type: "number_sequence",
+      difficulty: "medium",
+      durationMinutes: 8,
+    },
+    {
+      id: "tpl_4",
+      titleFr: "Quiz de couleurs et réflexes",
+      titleAr: "اختبار الألوان والتركيز",
+      descriptionFr: "Identifiez rapidement la couleur affichée pour stimuler les réflexes cognitifs.",
+      descriptionAr: "تعرّف بسرعة على اللون المعروض لتحفيز الانتباه وسرعة الاستجابة.",
+      type: "color_quiz",
+      difficulty: "easy",
+      durationMinutes: 5,
+    },
+    {
+      id: "tpl_5",
+      titleFr: "Calcul mental facile",
+      titleAr: "الحساب الذهني البسيط",
+      descriptionFr: "Résolvez des opérations simples de la vie quotidienne (+ et -).",
+      descriptionAr: "حل عمليات جمع وطرح يومية بسيطة لتحفيز التفكير المنطقي.",
+      type: "math_easy",
+      difficulty: "easy",
+      durationMinutes: 5,
+    },
+    {
+      id: "tpl_6",
+      titleFr: "Association d'objets du quotidien",
+      titleAr: "مطابقة الأشياء المترابطة",
+      descriptionFr: "Associez chaque objet à son usage ou son partenaire habituel.",
+      descriptionAr: "اربط كل شيء بما يناسبه في الحياة اليومية (مثل: شاي 🫖 براد).",
+      type: "word_match",
+      difficulty: "easy",
+      durationMinutes: 5,
+    },
+  ];
+
+  for (const t of templates) {
+    await client.execute({
+      sql: `INSERT OR REPLACE INTO activity_templates (id, title_fr, title_ar, description_fr, description_ar, type, difficulty, duration_minutes, is_active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [t.id, t.titleFr, t.titleAr, t.descriptionFr, t.descriptionAr, t.type, t.difficulty, t.durationMinutes, 1, now, now],
+    });
+  }
+
+  // Content Items
+  const content = [
+    {
+      id: "cnt_1",
+      titleFr: "Comprendre la maladie d'Alzheimer",
+      titleAr: "فهم مرض الزهايمر",
+      contentFr: "L'Alzheimer est une maladie neurodégénérative qui affecte la mémoire, le raisonnement et le comportement. Une prise en charge précoce améliore significativement la qualité de vie.",
+      contentAr: "مرض الزهايمر هو مرض تنكسي عصبي يؤثر على الذاكرة والتفكير والسلوك. التدخل المبكر يحسّن بشكل ملحوظ من جودة الحياة.",
+      category: "advice",
+      isPublished: 1,
+    },
+    {
+      id: "cnt_2",
+      titleFr: "Exercices de stimulation cognitive",
+      titleAr: "تمارين التحفيز المعرفي",
+      contentFr: "Des exercices réguliers comme les jeux de mémoire, la lecture et les activités créatives aident à ralentir le déclin cognitif et maintenir l'autonomie.",
+      contentAr: "التمارين المنتظمة كألعاب الذاكرة والقراءة والأنشطة الإبداعية تساعد في إبطاء التراجع المعرفي والحفاظ على الاستقلالية.",
+      category: "exercise",
+      isPublished: 1,
+    },
+    {
+      id: "cnt_3",
+      titleFr: "Alimentation et mémoire",
+      titleAr: "التغذية والذاكرة",
+      contentFr: "Un régime méditerranéen riche en oméga-3, antioxydants et légumes verts est associé à un meilleur maintien des fonctions cognitives chez les personnes âgées.",
+      contentAr: "النظام الغذائي المتوسطي الغني بأوميغا-3 ومضادات الأكسدة والخضروات الورقية مرتبط بحفاظ أفضل على الوظائف المعرفية لدى كبار السن.",
+      category: "nutrition",
+      isPublished: 1,
+    },
+  ];
+
+  for (const c of content) {
+    await client.execute({
+      sql: `INSERT OR REPLACE INTO content_items (id, title_fr, title_ar, content_fr, content_ar, category, is_published, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [c.id, c.titleFr, c.titleAr, c.contentFr, c.contentAr, c.category, c.isPublished, now, now],
+    });
+  }
 
   console.log("✅ Base de données Turso initialisée avec succès !");
 }

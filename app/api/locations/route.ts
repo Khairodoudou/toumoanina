@@ -6,25 +6,49 @@ import {
   calculateDistanceMeters,
 } from "@/lib/server/db";
 import { getSessionUser } from "@/lib/server/auth";
+import {
+  tursoGetLocations,
+  tursoInsertLocation,
+  tursoFindPatientById,
+  tursoGetPatientsByFamily,
+  tursoInsertAlert,
+} from "@/lib/server/turso-queries";
+import { getTursoClient } from "@/lib/server/turso";
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const user = await getSessionUser();
     const queryPatientId = searchParams.get("patientId");
+    const hasTurso = !!getTursoClient();
 
-    const patientId =
-      queryPatientId ||
-      user?.activePatientId ||
-      (user ? db.patients.find((p) => p.familyId === user.id)?.id : null) ||
-      db.patients[0]?.id;
+    let targetPatientId = queryPatientId || user?.activePatientId;
 
-    if (!patientId) {
+    if (!targetPatientId && user) {
+      if (hasTurso) {
+        const userPatients = await tursoGetPatientsByFamily(user.id);
+        targetPatientId = userPatients[0]?.id;
+      }
+      if (!targetPatientId) {
+        targetPatientId = db.patients.find((p) => p.familyId === user.id)?.id;
+      }
+    }
+
+    if (!targetPatientId) {
+      targetPatientId = db.patients[0]?.id;
+    }
+
+    if (!targetPatientId) {
       return NextResponse.json({ locations: [] });
     }
 
+    if (hasTurso) {
+      const locations = await tursoGetLocations(targetPatientId);
+      return NextResponse.json({ locations });
+    }
+
     const locations = db.locations
-      .filter((l) => l.patientId === patientId)
+      .filter((l) => l.patientId === targetPatientId)
       .sort((a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime());
 
     return NextResponse.json({ locations });
@@ -38,6 +62,8 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const user = await getSessionUser();
+    const hasTurso = !!getTursoClient();
+
     const {
       patientId: bodyPatientId,
       latitude,
@@ -46,13 +72,26 @@ export async function POST(req: Request) {
       source = "patient_device",
     } = body;
 
-    const targetPatientId =
-      bodyPatientId ||
-      user?.activePatientId ||
-      (user ? db.patients.find((p) => p.familyId === user.id)?.id : null) ||
-      db.patients[0]?.id;
+    let targetPatientId = bodyPatientId || user?.activePatientId;
 
-    const patient = db.patients.find((p) => p.id === targetPatientId);
+    if (!targetPatientId && user) {
+      if (hasTurso) {
+        const userPatients = await tursoGetPatientsByFamily(user.id);
+        targetPatientId = userPatients[0]?.id;
+      }
+      if (!targetPatientId) {
+        targetPatientId = db.patients.find((p) => p.familyId === user.id)?.id;
+      }
+    }
+
+    if (!targetPatientId) {
+      targetPatientId = db.patients[0]?.id;
+    }
+
+    let patient = hasTurso && targetPatientId ? await tursoFindPatientById(targetPatientId) : null;
+    if (!patient) {
+      patient = db.patients.find((p) => p.id === targetPatientId) || null;
+    }
 
     if (!patient) {
       return NextResponse.json({ error: "Patient introuvable." }, { status: 404 });
@@ -88,6 +127,7 @@ export async function POST(req: Request) {
         isResolved: false,
         createdAt: new Date().toISOString(),
       };
+      await tursoInsertAlert(newAlert);
       db.alerts.unshift(newAlert);
     }
 
@@ -103,6 +143,7 @@ export async function POST(req: Request) {
       source: source || "patient_device",
     };
 
+    await tursoInsertLocation(newLocation);
     db.locations.unshift(newLocation);
 
     return NextResponse.json({
