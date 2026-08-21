@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { db, hashPassword, User } from "@/lib/server/db";
 import { createSessionCookie, sanitizeUser } from "@/lib/server/auth";
+import {
+  tursoFindUserByEmail,
+  tursoInsertUser,
+  tursoInsertLog,
+} from "@/lib/server/turso-queries";
 
 export async function POST(req: Request) {
   try {
@@ -21,11 +26,21 @@ export async function POST(req: Request) {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
-    const existing = db.users.find(
+
+    // ── Check Turso first (persistent store) ─────────────────────────────
+    const tursoExisting = await tursoFindUserByEmail(normalizedEmail);
+    if (tursoExisting) {
+      return NextResponse.json(
+        { error: "Un compte avec cette adresse email existe déjà." },
+        { status: 409 }
+      );
+    }
+
+    // ── Fallback: check in-memory store too ───────────────────────────────
+    const memExisting = db.users.find(
       (u) => u.email.toLowerCase() === normalizedEmail
     );
-
-    if (existing) {
+    if (memExisting) {
       return NextResponse.json(
         { error: "Un compte avec cette adresse email existe déjà." },
         { status: 409 }
@@ -43,22 +58,33 @@ export async function POST(req: Request) {
       passwordHash: hashPassword(password),
       patientExitPin: "1234",
       createdAt: new Date().toISOString(),
-      // No activePatientId — account starts with 0 patients
     };
 
+    // ── Write to Turso (primary persistent store) ─────────────────────────
+    const savedToTurso = await tursoInsertUser(newUser);
+
+    // ── Always write to in-memory too (for current request lifecycle) ─────
     db.users.push(newUser);
 
     const token = await createSessionCookie(newUser);
 
-    // Add audit log
-    db.logs.unshift({
+    const logEntry = {
       id: `log_${Date.now()}`,
       userId: newUser.id,
       userEmail: newUser.email,
       action: "AUTH_REGISTER",
       details: `Création nouveau compte famille : ${newUser.email}`,
       createdAt: new Date().toISOString(),
-    });
+    };
+
+    // Write audit log to Turso
+    await tursoInsertLog(logEntry);
+    // Also keep in-memory log
+    db.logs.unshift(logEntry);
+
+    console.log(
+      `[Register] User ${newUser.email} created. Turso persisted: ${savedToTurso}`
+    );
 
     return NextResponse.json({
       success: true,

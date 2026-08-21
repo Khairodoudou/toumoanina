@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { db, verifyPassword } from "@/lib/server/db";
+import { db, verifyPassword, hashPassword, User } from "@/lib/server/db";
 import { createSessionCookie, sanitizeUser } from "@/lib/server/auth";
+import { tursoFindUserByEmail, tursoInsertLog } from "@/lib/server/turso-queries";
 
 export async function POST(req: Request) {
   try {
@@ -14,39 +15,75 @@ export async function POST(req: Request) {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
-    let user = db.users.find(
-      (u) => u.email.toLowerCase() === normalizedEmail
-    );
 
-    // Guaranteed admin fallback
+    // ── Demo/admin hardcoded shortcuts ────────────────────────────────────
     if (normalizedEmail === "admin@gmail.com" && password === "123456789") {
-      if (!user) {
-        user = {
-          id: "usr_admin_demo",
-          name: "Administrateur ToumAnina",
-          email: "admin@gmail.com",
-          phone: "+213 550 00 00 00",
-          role: "admin",
-          passwordHash: "",
-          createdAt: new Date().toISOString(),
-        };
-        db.users.push(user);
-      }
-    } else if (normalizedEmail === "famille.demo@toumoanina.app" && password === "Famille123!") {
-      if (!user) {
-        user = {
-          id: "usr_family_demo",
-          name: "Famille Benali",
-          email: "famille.demo@toumoanina.app",
-          phone: "+213 549 18 19 11",
-          role: "family",
-          patientExitPin: "1234",
-          passwordHash: "",
-          createdAt: new Date().toISOString(),
-        };
-        db.users.push(user);
-      }
-    } else if (!user || !verifyPassword(password, user.passwordHash)) {
+      const adminUser: User = {
+        id: "usr_admin_demo",
+        name: "Administrateur ToumAnina",
+        email: "admin@gmail.com",
+        phone: "+213 550 00 00 00",
+        role: "admin",
+        passwordHash: hashPassword("123456789"),
+        createdAt: new Date().toISOString(),
+      };
+      const token = await createSessionCookie(adminUser);
+      await tursoInsertLog({
+        id: `log_${Date.now()}`,
+        userId: adminUser.id,
+        userEmail: adminUser.email,
+        action: "AUTH_LOGIN",
+        details: "Connexion réussie (admin)",
+        createdAt: new Date().toISOString(),
+      });
+      return NextResponse.json({
+        success: true,
+        user: sanitizeUser(adminUser),
+        token,
+        redirectUrl: "/admin/dashboard",
+      });
+    }
+
+    if (normalizedEmail === "famille.demo@toumoanina.app" && password === "Famille123!") {
+      const demoFamily: User = {
+        id: "usr_family_demo",
+        name: "Famille Benali",
+        email: "famille.demo@toumoanina.app",
+        phone: "+213 549 18 19 11",
+        role: "family",
+        patientExitPin: "1234",
+        passwordHash: hashPassword("Famille123!"),
+        createdAt: new Date().toISOString(),
+      };
+      const token = await createSessionCookie(demoFamily);
+      await tursoInsertLog({
+        id: `log_${Date.now()}`,
+        userId: demoFamily.id,
+        userEmail: demoFamily.email,
+        action: "AUTH_LOGIN",
+        details: "Connexion réussie (famille démo)",
+        createdAt: new Date().toISOString(),
+      });
+      return NextResponse.json({
+        success: true,
+        user: sanitizeUser(demoFamily),
+        token,
+        redirectUrl: "/family/dashboard",
+      });
+    }
+
+    // ── Try Turso first (real accounts) ──────────────────────────────────
+    let user: User | null = await tursoFindUserByEmail(normalizedEmail);
+
+    // ── Fallback to in-memory store ───────────────────────────────────────
+    if (!user) {
+      const memUser = db.users.find(
+        (u) => u.email.toLowerCase() === normalizedEmail
+      );
+      if (memUser) user = memUser;
+    }
+
+    if (!user || !verifyPassword(password, user.passwordHash)) {
       return NextResponse.json(
         { error: "Identifiants invalides. Vérifiez votre email et mot de passe." },
         { status: 401 }
@@ -62,15 +99,17 @@ export async function POST(req: Request) {
 
     const token = await createSessionCookie(user);
 
-    // Add audit log
-    db.logs.unshift({
+    const logEntry = {
       id: `log_${Date.now()}`,
       userId: user.id,
       userEmail: user.email,
       action: "AUTH_LOGIN",
       details: `Connexion réussie (${user.role})`,
       createdAt: new Date().toISOString(),
-    });
+    };
+
+    await tursoInsertLog(logEntry);
+    db.logs.unshift(logEntry);
 
     return NextResponse.json({
       success: true,

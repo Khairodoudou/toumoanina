@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { db, User } from "./db";
+import { tursoFindUserById } from "./turso-queries";
 
 const SESSION_COOKIE_NAME = "toumoanina_session";
 
@@ -46,8 +47,13 @@ export async function getSessionUser(): Promise<User | null> {
       Buffer.from(sessionCookie.value, "base64").toString("utf-8")
     ) as SessionPayload;
 
-    const user = db.users.find((u) => u.id === payload.userId);
-    return user || null;
+    // 1. Try Turso (persistent - real accounts on Vercel)
+    const tursoUser = await tursoFindUserById(payload.userId);
+    if (tursoUser) return tursoUser;
+
+    // 2. Fallback to in-memory (demo accounts + local dev)
+    const memUser = db.users.find((u) => u.id === payload.userId);
+    return memUser || null;
   } catch {
     return null;
   }
