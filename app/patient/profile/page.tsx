@@ -29,13 +29,25 @@ export default function PatientProfilePage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/auth/me")
+    const localActiveId = typeof window !== "undefined" ? localStorage.getItem("toumoanina_active_patient_id") : null;
+
+    fetch("/api/auth/me", { cache: "no-store" })
       .then((r) => r.json())
       .then(async (d) => {
-        const activeId = d.user?.activePatientId;
+        const activeId = localActiveId || d.user?.activePatientId;
         if (activeId) {
-          const pr = await fetch(`/api/patients/${activeId}`);
-          if (pr.ok) { const pd = await pr.json(); setPatient(pd.patient); }
+          const pr = await fetch(`/api/patients/${activeId}`, { cache: "no-store" });
+          if (pr.ok) {
+            const pd = await pr.json();
+            setPatient(pd.patient);
+            return;
+          }
+        }
+        // Fallback to first patient
+        const prList = await fetch("/api/patients", { cache: "no-store" });
+        if (prList.ok) {
+          const pList = await prList.json();
+          if (pList.patients?.[0]) setPatient(pList.patients[0]);
         }
       })
       .catch(() => {})

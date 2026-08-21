@@ -127,6 +127,36 @@ export async function tursoUpdateUser(
   }
 }
 
+export async function tursoUpdateUserProfile(
+  userId: string,
+  fields: {
+    name?: string;
+    phone?: string;
+    patientExitPin?: string;
+    activePatientId?: string;
+    passwordHash?: string;
+  }
+): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) return false;
+  try {
+    const sets: string[] = [];
+    const args: InValue[] = [];
+    if (fields.name !== undefined) { sets.push("name = ?"); args.push(fields.name); }
+    if (fields.phone !== undefined) { sets.push("phone = ?"); args.push(fields.phone ?? null); }
+    if (fields.patientExitPin !== undefined) { sets.push("patient_exit_pin = ?"); args.push(fields.patientExitPin); }
+    if (fields.activePatientId !== undefined) { sets.push("active_patient_id = ?"); args.push(fields.activePatientId ?? null); }
+    if (fields.passwordHash !== undefined) { sets.push("password_hash = ?"); args.push(fields.passwordHash); }
+    if (sets.length === 0) return true;
+    args.push(userId);
+    await client.execute({ sql: `UPDATE users SET ${sets.join(", ")} WHERE id = ?`, args });
+    return true;
+  } catch (err) {
+    console.error("[Turso] Failed to update user profile:", err);
+    return false;
+  }
+}
+
 export async function tursoDeleteUser(userId: string): Promise<boolean> {
   const client = getTursoClient();
   if (!client) return false;

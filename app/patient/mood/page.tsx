@@ -78,14 +78,16 @@ export default function PatientMoodPage() {
   // Load patient and previous mood
   const loadData = useCallback(async () => {
     try {
+      const localActiveId = typeof window !== "undefined" ? localStorage.getItem("toumoanina_active_patient_id") : null;
+
       const [authRes, patientsRes] = await Promise.all([
-        fetch("/api/auth/me").then((r) => r.json()).catch(() => ({ user: null })),
-        fetch("/api/patients").then((r) => r.json()).catch(() => ({ patients: [] })),
+        fetch("/api/auth/me", { cache: "no-store" }).then((r) => r.json()).catch(() => ({ user: null })),
+        fetch("/api/patients", { cache: "no-store" }).then((r) => r.json()).catch(() => ({ patients: [] })),
       ]);
 
-      const activeId = authRes?.user?.activePatientId;
+      const activeId = localActiveId || authRes?.user?.activePatientId;
       const pts = patientsRes?.patients || [];
-      const current = pts.find((p: { id: string }) => p.id === activeId) || pts[0] || null;
+      const current = (activeId ? pts.find((p: { id: string }) => p.id === activeId) : null) || pts[0] || null;
 
       if (current) {
         setPatientId(current.id);

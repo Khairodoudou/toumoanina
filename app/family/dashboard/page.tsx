@@ -139,8 +139,11 @@ export default function FamilyDashboardPage() {
   const handleSelectPatient = async (patient: Patient) => {
     setActivePatient(patient);
     setActivePatientId(patient.id);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("toumoanina_active_patient_id", patient.id);
+    }
 
-    // Persist choice on server
+    // Persist choice on server (Turso + memory)
     fetch("/api/auth/me", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },

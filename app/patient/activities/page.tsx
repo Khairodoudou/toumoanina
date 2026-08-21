@@ -293,19 +293,30 @@ export default function PatientActivitiesPage() {
   useEffect(() => {
     const init = async () => {
       try {
+        const localActiveId = typeof window !== "undefined" ? localStorage.getItem("toumoanina_active_patient_id") : null;
+
         const [meRes, tRes] = await Promise.all([
-          fetch("/api/auth/me"),
-          fetch("/api/activity-templates"),
+          fetch("/api/auth/me", { cache: "no-store" }),
+          fetch("/api/activity-templates", { cache: "no-store" }),
         ]);
         const meData = await meRes.json();
-        const pid = meData.user?.activePatientId;
+        const pid = localActiveId || meData.user?.activePatientId;
         setPatientId(pid || null);
 
         if (pid) {
-          const pRes = await fetch(`/api/patients/${pid}`);
+          const pRes = await fetch(`/api/patients/${pid}`, { cache: "no-store" });
           if (pRes.ok) {
             const pData = await pRes.json();
             setPatientName(pData.patient?.name || "");
+          }
+        } else {
+          const pListRes = await fetch("/api/patients", { cache: "no-store" });
+          if (pListRes.ok) {
+            const pList = await pListRes.json();
+            if (pList.patients?.[0]) {
+              setPatientId(pList.patients[0].id);
+              setPatientName(pList.patients[0].name);
+            }
           }
         }
 

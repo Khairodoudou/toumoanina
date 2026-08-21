@@ -16,13 +16,19 @@ export default function PatientLocationPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/auth/me")
+    const localActiveId = typeof window !== "undefined" ? localStorage.getItem("toumoanina_active_patient_id") : null;
+    if (localActiveId) {
+      setPatientId(localActiveId);
+    }
+
+    fetch("/api/auth/me", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
-        if (d.user?.activePatientId) {
-          setPatientId(d.user.activePatientId);
+        const activeId = localActiveId || d.user?.activePatientId;
+        if (activeId) {
+          setPatientId(activeId);
         } else {
-          fetch("/api/patients")
+          fetch("/api/patients", { cache: "no-store" })
             .then((pr) => pr.json())
             .then((pd) => {
               if (pd.patients?.[0]?.id) {

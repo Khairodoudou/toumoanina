@@ -54,6 +54,10 @@ export default function PatientModePage() {
     if (!selectedId) return;
     setActivating(true);
     try {
+      if (typeof window !== "undefined") {
+        localStorage.setItem("toumoanina_active_patient_id", selectedId);
+      }
+
       await fetch("/api/auth/me", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },

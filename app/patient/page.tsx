@@ -32,13 +32,15 @@ export default function PatientPage() {
 
   // Fetch active patient
   useEffect(() => {
+    const localActiveId = typeof window !== "undefined" ? localStorage.getItem("toumoanina_active_patient_id") : null;
+
     Promise.all([
-      fetch("/api/auth/me").then((r) => r.json()).catch(() => ({ user: null })),
-      fetch("/api/patients").then((r) => r.json()).catch(() => ({ patients: [] })),
+      fetch("/api/auth/me", { cache: "no-store" }).then((r) => r.json()).catch(() => ({ user: null })),
+      fetch("/api/patients", { cache: "no-store" }).then((r) => r.json()).catch(() => ({ patients: [] })),
     ]).then(([authData, patientsData]) => {
-      const activeId = authData?.user?.activePatientId;
+      const activeId = localActiveId || authData?.user?.activePatientId;
       const pts: Patient[] = patientsData?.patients || [];
-      const current = pts.find((p) => p.id === activeId) || pts[0] || null;
+      const current = (activeId ? pts.find((p) => p.id === activeId) : null) || pts[0] || null;
       setPatient(current);
     });
   }, []);

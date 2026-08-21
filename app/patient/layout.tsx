@@ -29,11 +29,14 @@ export default function PatientLayout({ children }: { children: React.ReactNode 
 
   useEffect(() => {
     if (!isAuthenticated) return;
-    fetch("/api/patients")
+    const localActiveId = typeof window !== "undefined" ? localStorage.getItem("toumoanina_active_patient_id") : null;
+
+    fetch("/api/patients", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         const pts = d.patients || [];
-        const found = pts.find((p: { id: string }) => p.id === user?.activePatientId) || pts[0] || null;
+        const targetId = localActiveId || user?.activePatientId;
+        const found = (targetId ? pts.find((p: { id: string }) => p.id === targetId) : null) || pts[0] || null;
         setCurrentPatient(found);
       })
       .catch(() => {});

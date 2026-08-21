@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser, sanitizeUser, clearSessionCookie } from "@/lib/server/auth";
 import { db, hashPassword, verifyPassword } from "@/lib/server/db";
+import { tursoUpdateUserProfile, tursoFindUserById } from "@/lib/server/turso-queries";
+import { getTursoClient } from "@/lib/server/turso";
 
 export async function GET() {
   try {
@@ -28,28 +30,48 @@ export async function PUT(req: NextRequest) {
 
     const body = await req.json();
     const { name, phone, patientExitPin, activePatientId, currentPassword, newPassword } = body;
+    const hasTurso = !!getTursoClient();
 
-    const dbUser = db.users.find((u) => u.id === user.id);
-    if (!dbUser) {
-      return NextResponse.json({ error: "Utilisateur non trouvé." }, { status: 404 });
-    }
+    let passwordHashToSet: string | undefined = undefined;
 
     if (newPassword) {
-      if (!currentPassword || !verifyPassword(currentPassword, dbUser.passwordHash)) {
+      const currentHash = user.passwordHash || db.users.find((u) => u.id === user.id)?.passwordHash || "";
+      if (!currentPassword || !verifyPassword(currentPassword, currentHash)) {
         return NextResponse.json(
           { error: "Le mot de passe actuel est incorrect." },
           { status: 400 }
         );
       }
-      dbUser.passwordHash = hashPassword(newPassword);
+      passwordHashToSet = hashPassword(newPassword);
     }
 
-    if (name) dbUser.name = name;
-    if (phone !== undefined) dbUser.phone = phone;
-    if (patientExitPin) dbUser.patientExitPin = patientExitPin;
-    if (activePatientId !== undefined) dbUser.activePatientId = activePatientId;
+    // Update in Turso
+    if (hasTurso) {
+      await tursoUpdateUserProfile(user.id, {
+        name,
+        phone,
+        patientExitPin,
+        activePatientId,
+        passwordHash: passwordHashToSet,
+      });
+    }
 
-    return NextResponse.json({ success: true, user: sanitizeUser(dbUser) });
+    // Also update in-memory
+    const dbUser = db.users.find((u) => u.id === user.id);
+    if (dbUser) {
+      if (passwordHashToSet) dbUser.passwordHash = passwordHashToSet;
+      if (name) dbUser.name = name;
+      if (phone !== undefined) dbUser.phone = phone;
+      if (patientExitPin) dbUser.patientExitPin = patientExitPin;
+      if (activePatientId !== undefined) dbUser.activePatientId = activePatientId;
+    }
+
+    const updatedUser = hasTurso ? await tursoFindUserById(user.id) : dbUser;
+
+    return NextResponse.json({
+      success: true,
+      user: sanitizeUser(updatedUser || user),
+    });
   } catch (error) {
     console.error("Auth Me update error:", error);
     return NextResponse.json({ error: "Erreur serveur mise à jour profil." }, { status: 500 });
